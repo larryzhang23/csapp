@@ -1,0 +1,6 @@
+This is an x86-64 bomb for self-study students. 
+
+## Solution
+* It is in the defuse_code. Each line is the passcode for one bomb.
+* Read the good blog https://beej.us/guide/bggdb/ before you start the lab.
+* Use gdbnotes pdf as the gdb reference.
