@@ -1,4 +1,4 @@
-This file contains materials for one instance of the attacklab.
+This file contains materials for one instance of the attacklab. Read the attacklab.pdf for more instructions
 
 Files:
 
@@ -26,3 +26,8 @@ can compile (use flag -Og) and disassemble it to look for gadgets.
 Utility program to generate byte sequences.  See documentation in lab
 handout.
 
+
+## Solutions
+The solutions are created in 5 txt files for the 5 stages of attack.
+ctarget_lx.txt represents the code-injection attack for the first 3 stages.
+rtarget_lx.txt represents the return-oriented programming attack for the last 2 stages.
