@@ -316,7 +316,7 @@ void do_bgfg(char **argv)
     int usePid = (strchr(argv[1], '%') == NULL)? 1 : 0;
     int id = usePid? atoi(argv[1]) : atoi(strchr(argv[1], '%') + 1);
     if (id == 0) {
-        printf("%s: argument must be a PID or %%jobid\n", argv[1]);
+        printf("%s: argument must be a PID or %%jobid\n", argv[0]);
         return;
     }
     sigset_t mask_all, prev;
