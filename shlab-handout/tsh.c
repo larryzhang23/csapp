@@ -12,7 +12,6 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <errno.h>
-#include <time.h>
 
 /* Misc manifest constants */
 #define MAXLINE    1024   /* max line size */
@@ -360,10 +359,6 @@ void waitfg(pid_t pid)
     sigset_t mask_all, prev;
     struct job_t *job;
     int job_state;
-    struct timespec req;
-    // Specify the sleep time
-    req.tv_sec = 1;       // 1 second
-    req.tv_nsec = 50000000L;  // 500 million nanoseconds = 0.5 seconds
 
     Sigfillset(&mask_all);
     while (1) {
@@ -375,8 +370,7 @@ void waitfg(pid_t pid)
         if (job_state != FG)
             break;
         Sigprocmask(SIG_SETMASK, &prev, NULL);
-        // sleep(1);
-        nanosleep(&req, NULL);
+        usleep(500);
    }
    Sigprocmask(SIG_SETMASK, &prev, NULL);
    
