@@ -199,7 +199,11 @@ void *mm_realloc(void *ptr, size_t size)
         /* if size is smaller than copySize, no need to malloc */
         if (size < copySize) {
             /* keep header and footer */
-            split(ptr, ALIGN(size + DSIZE));
+            if (size + DSIZE < MIN_BLK_SIZE) 
+                size = MIN_BLK_SIZE;
+            else 
+                size = ALIGN(size + DSIZE);
+            split(ptr, size);
             newptr = ptr;
 
             // printf("%s: %d\n", "rellocate smaller size", size);
@@ -266,12 +270,14 @@ static void split(void *ptr, uint32_t bytes) {
         /* insert the remaining block back to free list*/
         PUT(HDRP(nxt_blk), left_size);
         PUT(FTRP(nxt_blk), left_size);
+        /* normal malloc doesn't need the coalesce since every time calling free will call coalesce. */
+        /* But for realloc and the realloc size is smaller than original, then the split block might coalesce with the next block */
+        coalesce(nxt_blk);
         insert_free_list(nxt_blk);
     } else {
         SETALLOC(HDRP(ptr));
         SETALLOC(FTRP(ptr));
     }
-        
 }
 
 static void *incr_heap(uint32_t bytes) {

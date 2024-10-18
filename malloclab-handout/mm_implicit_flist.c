@@ -252,6 +252,9 @@ static void split(void *ptr, uint32_t bytes) {
         // printf("\n%p, %p, %d, %d, %d\n", ptr, nxt_blk, left_size, blk_size, bytes);
         PUT(HDRP(nxt_blk), left_size);
         PUT(FTRP(nxt_blk), left_size);
+        /* normal malloc doesn't need the coalesce since every time calling free will call coalesce. */
+        /* But for realloc and the realloc size is smaller than original, then the split block might coalesce with the next block */
+        coalesce(nxt_blk);
     } else {
         SETALLOC(HDRP(ptr));
         SETALLOC(FTRP(ptr));
