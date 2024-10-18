@@ -211,9 +211,23 @@ void *mm_realloc(void *ptr, size_t size)
         } else if (size == copySize) {
             newptr = ptr;
         } else {
-            newptr = mm_malloc(size);
-            memcpy(newptr, ptr, copySize);
-            mm_free(ptr);
+            /* if the next block is free, try to merge it */
+            char *nxt_blk = NEXT_BLKP(ptr);
+            uint32_t nxt_blk_sz = GETSIZE(HDRP(nxt_blk));
+            uint32_t curr_blk_sz = GETSIZE(HDRP(ptr));
+            uint32_t new_assign_size = ALIGN(size + DSIZE);
+            if (!GETALLOC(HDRP(nxt_blk)) && GETALLOC(HDRP(last_blk)) && (curr_blk_sz + nxt_blk_sz >= new_assign_size)) {
+                /* update the header and footer */
+                PUT(HDRP(ptr), curr_blk_sz + nxt_blk_sz);
+                PUT(FTRP(nxt_blk), curr_blk_sz + nxt_blk_sz);
+                move_blk_out_of_free_list(nxt_blk);
+                split(ptr, new_assign_size);
+                newptr = ptr; 
+            } else {
+                newptr = mm_malloc(size);
+                memcpy(newptr, ptr, copySize);
+                mm_free(ptr);
+            }
         }
     } else {
         newptr = mm_malloc(size);
