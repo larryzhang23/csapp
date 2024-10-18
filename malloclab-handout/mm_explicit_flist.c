@@ -92,7 +92,7 @@ static void *free_bp;
 static void *find_first_fit(uint32_t bytes);
 
 /* find-best policy */
-// static void *find_best_fit(uint32_t bytes);
+static void *find_best_fit(uint32_t bytes);
 
 static void split(void *ptr, uint32_t bytes);
 
@@ -146,8 +146,8 @@ void *mm_malloc(size_t size)
     size = ALIGN(size);
 
     /* Search the suitable block */
-    char *ptr = (char *)find_first_fit(size);
-    // char *ptr = (char *)find_best_fit(size);
+    // char *ptr = (char *)find_first_fit(size);
+    char *ptr = (char *)find_best_fit(size);
 
     /* increase heap if no suitable block */
     if (ptr == NULL) {
@@ -235,27 +235,26 @@ static void *find_first_fit(uint32_t bytes) {
     return ptr;
 }
 
-// static void *find_best_fit(uint32_t bytes) {
-//     char *ptr = (char *)free_bp;
-//     char *ptr_end = (char *)mem_heap_hi();
-//     char *best_fit = NULL;
-//     uint32_t best_size = UINT32_MAX;
-//     uint32_t blk_size;
-//     /* if block is allocated or the size of the block is smaller than required, keep moving */
-//     while ((ptr <= ptr_end)) {
-//         blk_size = GETSIZE(HDRP(ptr));
-//         if (!GETALLOC(HDRP(ptr)) && (blk_size >= bytes)) {
-//             if (best_fit == NULL || blk_size < best_size) {
-//                 best_size = blk_size;
-//                 best_fit = ptr;
-//             }
-//         }
-//         ptr = NEXT_BLKP(ptr);
-//     }
+static void *find_best_fit(uint32_t bytes) {
+    char *ptr = (char *)free_bp;
+    char *best_fit = NULL;
+    uint32_t best_size = UINT32_MAX;
+    uint32_t blk_size;
+    /* if block is allocated or the size of the block is smaller than required, keep moving */
+    while (ptr != NULL) {
+        blk_size = GETSIZE(HDRP(ptr));
+        if (blk_size >= bytes) {
+            if (best_fit == NULL || blk_size < best_size) {
+                best_size = blk_size;
+                best_fit = ptr;
+            }
+        }
+        ptr = PREV_FREE_BLKP(ptr);
+    }
     
-//     /* no available block */
-//     return best_fit;
-// }
+    /* no available block */
+    return best_fit;
+}
 
 static void split(void *ptr, uint32_t bytes) {
     uint32_t blk_size = GETSIZE(HDRP(ptr));
