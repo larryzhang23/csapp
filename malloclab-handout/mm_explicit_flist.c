@@ -191,65 +191,93 @@ void *mm_realloc(void *ptr, size_t size)
         return ptr;
     }
 
+    if (ptr == NULL)
+        return mm_malloc(size);
+
     void *newptr;
     size_t copySize;
-    
-    if (ptr != NULL) {
-        copySize = GETSIZE(HDRP(ptr)) - DSIZE;
-        /* if size is smaller than copySize, no need to malloc */
-        if (size < copySize) {
-            /* keep header and footer */
-            if (size + DSIZE < MIN_BLK_SIZE) 
-                size = MIN_BLK_SIZE;
-            else 
-                size = ALIGN(size + DSIZE);
-            split(ptr, size);
-            newptr = ptr;
 
-            // printf("%s: %d\n", "rellocate smaller size", size);
-            // printBlock();
-        } else if (size == copySize) {
-            newptr = ptr;
-        } else {
-            /* if the next block is free, try to merge it */
-            char *nxt_blk = NEXT_BLKP(ptr);
-            char *last_blk = PREV_BLKP(ptr);
-            uint32_t nxt_blk_sz = GETSIZE(HDRP(nxt_blk));
-            uint32_t prev_blk_sz = GETSIZE(HDRP(last_blk));
-            uint32_t curr_blk_sz = GETSIZE(HDRP(ptr));
-            uint32_t new_assign_size = ALIGN(size + DSIZE);
-            if (!GETALLOC(HDRP(nxt_blk)) && GETALLOC(HDRP(last_blk)) && (curr_blk_sz + nxt_blk_sz >= new_assign_size)) {
-                /* update the header and footer */
-                PUT(HDRP(ptr), curr_blk_sz + nxt_blk_sz);
-                PUT(FTRP(nxt_blk), curr_blk_sz + nxt_blk_sz);
-                move_blk_out_of_free_list(nxt_blk);
-                split(ptr, new_assign_size);
-                newptr = ptr; 
-            // } else if (GETALLOC(HDRP(nxt_blk)) && !GETALLOC(HDRP(last_blk)) && (curr_blk_sz + prev_blk_sz >= new_assign_size)) {
-            //     /* update the header and footer */
-            //     PUT(HDRP(last_blk), curr_blk_sz + prev_blk_sz);
-            //     PUT(FTRP(ptr), curr_blk_sz + prev_blk_sz);
-            //     /* move the prev block out of free list */
-            //     move_blk_out_of_free_list(last_blk);
-            //     /* copy the content of current block to the beginning of the prev block */
-            //     if (prev_blk_sz - DSIZE >= copySize) {
-            //         memcpy(last_blk, ptr, copySize);
-            //     } else {
-            //         uint32_t prev_payload_sz = prev_blk_sz - DSIZE;
-            //         memcpy(last_blk, ptr, prev_payload_sz);
-            //         memcpy(ptr, ptr + prev_payload_sz, copySize - (prev_payload_sz));
-            //     }
-            //     split(ptr, new_assign_size);
-            //     newptr = last_blk; 
-            // } 
-            } else {
-                newptr = mm_malloc(size);
-                memcpy(newptr, ptr, copySize);
-                mm_free(ptr);
-            }
-        }
+    copySize = GETSIZE(HDRP(ptr)) - DSIZE;
+    /* if size is smaller than copySize, no need to malloc */
+    if (size < copySize) {
+        /* keep header and footer */
+        if (size + DSIZE < MIN_BLK_SIZE) 
+            size = MIN_BLK_SIZE;
+        else 
+            size = ALIGN(size + DSIZE);
+        split(ptr, size);
+        newptr = ptr;
+
+        // printf("%s: %d\n", "rellocate smaller size", size);
+        // printBlock();
+    } else if (size == copySize) {
+        newptr = ptr;
     } else {
-        newptr = mm_malloc(size);
+        /* try to use the blocks next to the curr block if they are free */
+        char *nxt_blk = NEXT_BLKP(ptr);
+        char *last_blk = PREV_BLKP(ptr);
+        uint32_t nxt_blk_alloc = GETALLOC(HDRP(nxt_blk));
+        uint32_t prev_blk_alloc = GETALLOC(HDRP(last_blk));
+        uint32_t nxt_blk_sz = nxt_blk_alloc? 0: GETSIZE(HDRP(nxt_blk));
+        uint32_t prev_blk_sz = prev_blk_alloc? 0: GETSIZE(HDRP(last_blk));
+        uint32_t curr_blk_sz = GETSIZE(HDRP(ptr));
+        uint32_t total_sz = prev_blk_sz + curr_blk_sz + nxt_blk_sz;
+        uint32_t new_assign_size = ALIGN(size + DSIZE);
+
+        if (total_sz >= new_assign_size) {
+            /* set up new pointer */
+            if (!prev_blk_alloc) 
+                newptr = last_blk;
+            else
+                newptr = ptr;
+                
+            /* set up header */
+            if (!prev_blk_alloc) 
+                PUT(HDRP(last_blk), total_sz);
+            else
+                PUT(HDRP(ptr), total_sz);
+
+            /* set up footer */
+            if (!nxt_blk_alloc)
+                PUT(FTRP(nxt_blk),total_sz);
+            else
+                PUT(FTRP(ptr), total_sz);
+
+            /* move the blocks out of free list*/
+            if (!prev_blk_alloc)
+                move_blk_out_of_free_list(last_blk);
+            if (!nxt_blk_alloc)
+                move_blk_out_of_free_list(nxt_blk);
+
+            /* copy the content of current block to the beginning of the prev block */
+            if (newptr == last_blk) {
+                char *dst_ptr = last_blk;
+                char *src_ptr = ptr;
+                uint32_t copy_step = prev_blk_sz >= copySize? copySize: prev_blk_sz;
+                uint32_t nsize = 0;
+                while (nsize + copy_step <= copySize) {
+                    memcpy(dst_ptr, src_ptr, copy_step);
+                    // printf("blk_sz: %d, dst: %p, src: %p, end_dst: %p\n", prev_blk_sz, dst_ptr, src_ptr, dst_ptr + copy_step);
+                    // fflush(stdout);
+                    dst_ptr += copy_step;
+                    src_ptr += copy_step;
+                    nsize += copy_step;
+                }
+                if (nsize < copySize) {
+                    // printf("dst: %p, src: %p, end_dst: %p, footer: %p\n", dst_ptr, src_ptr, dst_ptr + copySize - nsize, FTRP(last_blk));
+                    // fflush(stdout);
+                    memcpy(dst_ptr, src_ptr, copySize - nsize);
+                }
+            }
+            /* set up alloc and the optional further split */
+            split(newptr, new_assign_size);
+            
+        } else {
+            newptr = mm_malloc(size);
+            memcpy(newptr, ptr, copySize);
+            mm_free(ptr);
+        }
+
     }
     
     return newptr;
