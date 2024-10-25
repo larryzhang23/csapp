@@ -12,9 +12,11 @@ static const char *user_agent_hdr = "User-Agent: Mozilla/5.0 (X11; Linux x86_64;
 
 void *serve_client(void *connfd);
 
-int parse_request(rio_t *rp, char *req_buf);
+int parse_request(rio_t *rp, char *req_buf, char *host, char *port);
 
-void response(rio_t *rp, char *msg);
+int proxy_request(int connfd, char *req_buf, char *host, char *port);
+
+void debug_respond(int fd, char *msg);
 
 void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg);
 
@@ -38,7 +40,7 @@ int main(int argc, char *argv[])
         Getnameinfo((SA *) &clientaddr, clientaddr_len, hostname, MAXLINE, 
                     port, MAXLINE, 0);
         printf("Accepted connection from (%s, %s)\n", hostname, port);
-        serve_client((int *)connfd);
+        serve_client((int *)connfd); 
         printf("Close connection from (%s, %s)\n", hostname, port);
     }
 
@@ -49,23 +51,25 @@ int main(int argc, char *argv[])
 void *serve_client(void *connfd) {
     int fd = (int)connfd;
     rio_t rp;
-    char msg[MAXLINE];
+    char req[MAXLINE];
+    char host[MAXLINE], port[10];
 
     Rio_readinitb(&rp, fd);
     
-    if (parse_request(&rp, msg) < 0)
-        clienterror(rp.rio_fd, "", "400", "Bad Request", "Bad request");
-    else {
-        response(&rp, msg);
-    }
-        
+    if (parse_request(&rp, req, host, port) != 0)
+        clienterror(rp.rio_fd, "parse request failed", "400", "Bad Request", "Bad request");
+    
+    printf("%s", req);
+    if (proxy_request(fd, req, host, port) != 0)
+        clienterror(rp.rio_fd, "proxy request failed", "400", "Bad Request", "Bad request");
+     
     close(fd);
 }
 
-int parse_request(rio_t *rp, char *req_buf) {
+int parse_request(rio_t *rp, char *req_buf, char *host, char *port) {
     char buf[MAXLINE];
     char method[16], url[MAXLINE], version[32];
-    char host[MAXLINE] = {0};
+    int find_host = 0;
     int add_host = 1;
 
     Rio_readlineb(rp, buf, MAXLINE);
@@ -80,12 +84,24 @@ int parse_request(rio_t *rp, char *req_buf) {
         ptr += prefix_len;
     else
         ptr = url;
+    /* parse host name */
     if ((end = strchr(ptr, '/')) == NULL)
         return -1;
     if (end != ptr) {
         *end = '\0';
-        sprintf(host, "Host: %s\r\n", ptr);
-        printf("%s", host);
+        /* parse port number if exists */
+        char *tmp;
+        if ((tmp = strchr(ptr, ':')) != NULL) {
+            strcpy(port, tmp + 1);
+            *tmp = 0;
+            sprintf(host, "%s", ptr);
+            *tmp = ':';
+        } else {
+            sprintf(host, "%s", ptr);
+            strcpy(port, "80");
+        }
+        find_host = 1;
+        // printf("%s", host);
         *end = '/';
     }
     if (*(end + 1) == 0)
@@ -99,12 +115,17 @@ int parse_request(rio_t *rp, char *req_buf) {
         Rio_readlineb(rp, buf, MAXLINE);
         if (strstr(buf, "Host:") != NULL) 
             add_host = 0;
-        if (!strcmp(buf, "\r\n") && add_host) {
-            if (strlen(host) == 0) 
-                return -1;
-            strcat(req_buf, host); 
+        /* add additional headers when meet the last line */
+        if (!strcmp(buf, "\r\n")) {
+            if (add_host) {
+                if (find_host == 0) 
+                    return -1;
+                sprintf(req_buf, "%sHost: %s\r\n", req_buf, host);
+            }
+            strcat(req_buf, "Connection: close\r\n");
+            strcat(req_buf, "Proxy-Connection: close\r\n");
         }
-            
+        /* add headers */
         strcat(req_buf, buf);
 
     } while (strcmp(buf, "\r\n"));
@@ -112,7 +133,50 @@ int parse_request(rio_t *rp, char *req_buf) {
     return 0;
 }
 
-void response(rio_t *rp, char *msg) {
+int proxy_request(int connfd, char *req_buf, char *host, char *port) {
+    int clientfd;
+    if ((clientfd = Open_clientfd(host, port)) < 0)
+        return -1;
+
+    /* write request to server */
+    Rio_writen(clientfd, req_buf, strlen(req_buf));
+
+    rio_t rp;
+    Rio_readinitb(&rp, clientfd);
+    char buf[MAXLINE];
+    ssize_t n;
+
+    /* read header */
+    if (Rio_readlineb(&rp, buf, MAXLINE) <= 0) {
+        close(clientfd);
+        return -1;
+    }
+        
+    Rio_writen(connfd, buf, strlen(buf));
+    do {
+        if (Rio_readlineb(&rp, buf, MAXLINE) <= 0) {
+            close(clientfd);
+            return -1;
+        }
+        Rio_writen(connfd, buf, strlen(buf));
+    } while (strcmp(buf, "\r\n"));
+
+
+    /* read data */
+    while ((n = Rio_readnb(&rp, buf, MAXLINE)) > 0) {
+        // printf("read %ld bytes, buf:%s\n", n, buf);
+        Rio_writen(connfd, buf, n);
+    }
+    
+    /* error handling */
+    close(clientfd);
+    if (n < 0)
+        return -1;
+    
+    return 0;
+}   
+
+void debug_respond(int fd, char *msg) {
     char buf[MAXLINE], body[MAXLINE];
     
     /* Print the HTTP response body */
@@ -124,15 +188,14 @@ void response(rio_t *rp, char *msg) {
     /* Print the HTTP response headers */
     // sprintf(buf, "HTTP/1.0 %s %s\r\n", errnum, shortmsg);
     sprintf(buf, "HTTP/1.0 200 OK\r\n");
-    Rio_writen(rp->rio_fd, buf, strlen(buf));
+    Rio_writen(fd, buf, strlen(buf));
     sprintf(buf, "Content-type: text/html\r\n");
-    Rio_writen(rp->rio_fd, buf, strlen(buf));
+    Rio_writen(fd, buf, strlen(buf));
     sprintf(buf, "Content-Length: %ld\r\n", strlen(body));
-    Rio_writen(rp->rio_fd, buf, strlen(buf));
+    Rio_writen(fd, buf, strlen(buf));
     sprintf(buf, "Connection: close\r\n\r\n");
-    Rio_writen(rp->rio_fd, buf, strlen(buf));
-    Rio_writen(rp->rio_fd, body, strlen(body));
-    close(rp);
+    Rio_writen(fd, buf, strlen(buf));
+    Rio_writen(fd, body, strlen(body));
 }
 
 /* $begin clienterror */
