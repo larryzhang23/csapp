@@ -31,6 +31,7 @@ int main(int argc, char *argv[])
     struct sockaddr_storage clientaddr;
     socklen_t clientaddr_len = sizeof(struct sockaddr_storage);
     char hostname[MAXLINE], port[MAXLINE];
+    pthread_t tid;
 
     listenfd = Open_listenfd(argv[1]);
     
@@ -40,8 +41,8 @@ int main(int argc, char *argv[])
         Getnameinfo((SA *) &clientaddr, clientaddr_len, hostname, MAXLINE, 
                     port, MAXLINE, 0);
         printf("Accepted connection from (%s, %s)\n", hostname, port);
-        serve_client((int *)connfd); 
-        printf("Close connection from (%s, %s)\n", hostname, port);
+        Pthread_create(&tid, NULL, serve_client, (void *)connfd);
+        printf("sprawn thread: %lu\n", tid);
     }
 
     // printf("%s", user_agent_hdr);
@@ -49,6 +50,7 @@ int main(int argc, char *argv[])
 }
 
 void *serve_client(void *connfd) {
+    Pthread_detach(Pthread_self());
     int fd = (int)connfd;
     rio_t rp;
     char req[MAXLINE];
