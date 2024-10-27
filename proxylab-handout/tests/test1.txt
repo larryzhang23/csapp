@@ -1,0 +1,24 @@
+// missing host info
+echo -e "GET / HTTP/1.1\r\nUser-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:10.0.3) Gecko/20120305 Firefox/10.0.3\r\n\r\n" | nc localhost 20566 
+
+// correct case
+echo -e "GET http://www.cmu.edu/hub/index.html HTTP/1.1\r\nUser-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:10.0.3) Gecko/20120305 Firefox/10.0.3\r\n\r\n" | nc localhost 20566
+
+// contain host info in header
+echo -e "GET http://www.cmu.edu/hub/index.html HTTP/1.1\r\nHost: cmu.edu\r\nUser-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:10.0.3) Gecko/20120305 Firefox/10.0.3\r\n\r\n" | nc localhost 20566
+
+// fetch from tiny web server
+echo -e "GET http://localhost:20565/home.html HTTP/1.1\r\nUser-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:10.0.3) Gecko/20120305 Firefox/10.0.3\r\n\r\n" | nc localhost 20566 
+
+// fetch binary data file
+echo -e "GET http://localhost:20565/godzilla.gif HTTP/1.1\r\nUser-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:10.0.3) Gecko/20120305 Firefox/10.0.3\r\n\r\n" | nc localhost 20566
+
+echo -e "GET http://localhost:20565/tiny HTTP/1.1\r\nUser-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:10.0.3) Gecko/20120305 Firefox/10.0.3\r\n\r\n" | nc localhost 20566 
+
+// fetch code file
+echo -e "GET http://localhost:20565/tiny.c HTTP/1.1\r\nUser-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:10.0.3) Gecko/20120305 Firefox/10.0.3\r\n\r\n" | nc localhost 20566 
+
+echo -e "GET http://localhost:20565/csapp.c HTTP/1.1\r\nUser-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:10.0.3) Gecko/20120305 Firefox/10.0.3\r\n\r\n" | nc localhost 20566 
+
+curl -v --proxy http://localhost:20566 http://localhost:20565/home.html
+

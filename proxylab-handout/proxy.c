@@ -1,20 +1,22 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
 #include "csapp.h"
+#include "cache.h"
 
-/* Recommended max cache and object sizes */
-#define MAX_CACHE_SIZE 1049000
-#define MAX_OBJECT_SIZE 102400
 
 /* You won't lose style points for including this long line in your code */
 static const char *user_agent_hdr = "User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:10.0.3) Gecko/20120305 Firefox/10.0.3\r\n";
 
+/* cache and total_object are protected by reader-writer lock */
+/* proxy cache */
+static Cache cache;
 
 void *serve_client(void *connfd);
 
-int parse_request(rio_t *rp, char *req_buf, char *host, char *port);
+int parse_request(rio_t *rp, char *req_buf, char *host, char *port, char *url);
 
-int proxy_request(int connfd, char *req_buf, char *host, char *port);
+int proxy_request(int connfd, char *req_buf, char *host, char *port, char *url);
 
 void debug_respond(int fd, char *msg);
 
@@ -34,6 +36,9 @@ int main(int argc, char *argv[])
     pthread_t tid;
 
     listenfd = Open_listenfd(argv[1]);
+
+    /* init clock_mutex */
+    cache_init(&cache);
     
     while (1) {
         if ((connfd = Accept(listenfd, (SA *) &clientaddr, &clientaddr_len)) == -1)
@@ -54,28 +59,29 @@ void *serve_client(void *connfd) {
     int fd = (int)connfd;
     rio_t rp;
     char req[MAXLINE];
-    char host[MAXLINE], port[10];
+    char host[MAXLINE], port[10], url[MAXLINE];
 
     Rio_readinitb(&rp, fd);
     
-    if (parse_request(&rp, req, host, port) != 0)
+    if (parse_request(&rp, req, host, port, url) != 0)
         clienterror(rp.rio_fd, "parse request failed", "400", "Bad Request", "Bad request");
     
     printf("%s", req);
-    if (proxy_request(fd, req, host, port) != 0)
+    if (proxy_request(fd, req, host, port, url) != 0)
         clienterror(rp.rio_fd, "proxy request failed", "400", "Bad Request", "Bad request");
-     
+    
     close(fd);
 }
 
-int parse_request(rio_t *rp, char *req_buf, char *host, char *port) {
-    char buf[MAXLINE];
-    char method[16], url[MAXLINE], version[32];
+int parse_request(rio_t *rp, char *req_buf, char *host, char *port, char *full_url) {
+    char buf[MAXLINE], url[MAXLINE];
+    char method[16], version[32];
     int find_host = 0;
     int add_host = 1;
 
     Rio_readlineb(rp, buf, MAXLINE);
     sscanf(buf, "%s %s %s", method, url, version);
+    strcpy(full_url, url);
     if (strcmp(method, "GET") != 0) 
         return -1;
     
@@ -117,6 +123,8 @@ int parse_request(rio_t *rp, char *req_buf, char *host, char *port) {
         Rio_readlineb(rp, buf, MAXLINE);
         if (strstr(buf, "Host:") != NULL) 
             add_host = 0;
+        if ((strstr(buf, "Connection:") != NULL) || (strstr(buf, "Proxy-Connection") != NULL))
+            continue;
         /* add additional headers when meet the last line */
         if (!strcmp(buf, "\r\n")) {
             if (add_host) {
@@ -135,24 +143,41 @@ int parse_request(rio_t *rp, char *req_buf, char *host, char *port) {
     return 0;
 }
 
-int proxy_request(int connfd, char *req_buf, char *host, char *port) {
+int proxy_request(int connfd, char *req_buf, char *host, char *port, char *url) {
+    rio_t rp;
+    char buf[MAXLINE];
+    char object[MAX_OBJECT_SIZE];
+    char *obj_ptr = object;
+    char *obj_ptr_end = object + MAX_OBJECT_SIZE;
+    int save_to_cache = 1;
+    ssize_t n;
+
+    /* search cache first */
+    if ((n = read_cache(&cache, url, object, MAX_OBJECT_SIZE)) > 0) {
+        Rio_writen(connfd, object, n);
+        return 0;
+    }
+
     int clientfd;
     if ((clientfd = Open_clientfd(host, port)) < 0)
         return -1;
+    
+    Rio_readinitb(&rp, clientfd);
 
     /* write request to server */
     Rio_writen(clientfd, req_buf, strlen(req_buf));
-
-    rio_t rp;
-    Rio_readinitb(&rp, clientfd);
-    char buf[MAXLINE];
-    ssize_t n;
 
     /* read header */
     if (Rio_readlineb(&rp, buf, MAXLINE) <= 0) {
         close(clientfd);
         return -1;
     }
+    
+    if (obj_ptr + strlen(buf) < obj_ptr_end) {
+        strcpy(obj_ptr, buf);
+        obj_ptr += strlen(buf);
+    } else 
+        save_to_cache = 0;
         
     Rio_writen(connfd, buf, strlen(buf));
     do {
@@ -160,6 +185,12 @@ int proxy_request(int connfd, char *req_buf, char *host, char *port) {
             close(clientfd);
             return -1;
         }
+
+        if (obj_ptr + strlen(buf) < obj_ptr_end) {
+            strcpy(obj_ptr, buf);
+            obj_ptr += strlen(buf);
+        } else 
+            save_to_cache = 0;
         Rio_writen(connfd, buf, strlen(buf));
     } while (strcmp(buf, "\r\n"));
 
@@ -167,6 +198,11 @@ int proxy_request(int connfd, char *req_buf, char *host, char *port) {
     /* read data */
     while ((n = Rio_readnb(&rp, buf, MAXLINE)) > 0) {
         // printf("read %ld bytes, buf:%s\n", n, buf);
+        if (obj_ptr + n <= obj_ptr_end) {
+            strncpy(obj_ptr, buf, n);
+            obj_ptr += n;
+        } else 
+            save_to_cache = 0;
         Rio_writen(connfd, buf, n);
     }
     
@@ -175,6 +211,8 @@ int proxy_request(int connfd, char *req_buf, char *host, char *port) {
     if (n < 0)
         return -1;
     
+    /* save to cache if possible */
+    write_cache(&cache, url, object, obj_ptr - object);
     return 0;
 }   
 
