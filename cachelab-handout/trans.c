@@ -105,16 +105,16 @@ void transpose_submit(int M, int N, int A[N][M], int B[M][N])
                     B[k + 4][i + 3] = tmp8;                    
                 }
                 /* Move the bottom right of A to the bottom right of B */
-                for (k = i; k < i + 4; k++) {
-                    tmp1 = A[k + 4][j + 4];
-                    tmp2 = A[k + 4][j + 5];
-                    tmp3 = A[k + 4][j + 6];
-                    tmp4 = A[k + 4][j + 7];
+                for (k = j; k < j + 4; k++) {
+                    tmp1 = A[i + 4][k + 4];
+                    tmp2 = A[i + 5][k + 4];
+                    tmp3 = A[i + 6][k + 4];
+                    tmp4 = A[i + 7][k + 4];
 
-                    B[j + 4][k + 4] = tmp1;
-                    B[j + 5][k + 4] = tmp2;
-                    B[j + 6][k + 4] = tmp3;
-                    B[j + 7][k + 4] = tmp4;
+                    B[k + 4][i + 4] = tmp1;
+                    B[k + 4][i + 5] = tmp2;
+                    B[k + 4][i + 6] = tmp3;
+                    B[k + 4][i + 7] = tmp4;
                 }
             }
         }   
